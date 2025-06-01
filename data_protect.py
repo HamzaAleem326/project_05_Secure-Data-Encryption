@@ -29,6 +29,9 @@ if "vault" not in st.session_state:
 if "attempts" not in st.session_state:
     st.session_state.attempts = 0
 
+if "lockout_time" not in st.session_state:
+    st.session_state.lockout_time = 0
+
 # Passkey hashing
 def get_hash(passphrase):
     return hashlib.sha256(passphrase.encode()).hexdigest()
