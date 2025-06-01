@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 from cryptography.fernet import Fernet
+import time
 
 DATA_PATH = 'user_data.json'
 
@@ -47,66 +48,99 @@ def unlock_text(ciphertext, passphrase):
         st.session_state.attempts += 1
         return None
 
-# Streamlit UI
-st.title("🛡️ Personal Data Vault")
+# navigation bar
+st.title("Data Protection System")
+menu= ["Home", "register", "login","Store Data", "Retrive Data" ]
+choice = st.sidebar.selectbox("Navigation", menu)  # fixed selectbox
 
-pages = ["Home", "Add Secret", "Unlock Secret", "Reauthorize"]
-nav = st.sidebar.selectbox("Go to", pages)
+if choice == "Home":
+    st.subheader("Welcome to the Data Protection System")
+    st.write("This system allows you to securely store and retrieve data using encryption with streamlit. this system also allows you to register and login with a password. The password is hashed and stored securely, and the data is encrypted using a key derived from the password.")
 
-if nav == "Home":
-    st.header("Welcome to Your Personal Data Vault")
-    st.write("Safeguard your notes or secrets with a passphrase. Encrypt and decrypt with confidence!")
-
-elif nav == "Add Secret":
-    st.header("🔐 Store a New Secret")
-    secret = st.text_area("Type your secret here:")
-    passphrase = st.text_input("Choose a passphrase:", type="password")
-
-    if st.button("Encrypt & Store"):
-        if secret and passphrase:
-            hashed = get_hash(passphrase)
-            encrypted = lock_text(secret, passphrase)
-            st.session_state.vault[encrypted] = {
-                "encrypted_text": encrypted,
-                "passkey": hashed
-            }
-            write_data(st.session_state.vault)
-            st.success("Your secret is locked away safely!")
-            st.code(encrypted, language="text")
-        else:
-            st.warning("Please provide both a secret and a passphrase.")
-
-elif nav == "Unlock Secret":
-    if st.session_state.attempts >= 3:
-        st.warning("🚫 Too many failed tries! Please reauthorize.")
-        st.session_state.attempts = 0
-        st.experimental_rerun()
-
-    st.header("🔓 Unlock a Secret")
-    encrypted = st.text_area("Paste your encrypted text:")
-    passphrase = st.text_input("Enter your passphrase:", type="password")
-
-    if st.button("Decrypt"):
-        if encrypted and passphrase:
-            revealed = unlock_text(encrypted, passphrase)
-            if revealed:
-                st.success(f"Here is your secret: {revealed}")
+# registration
+elif choice == "register":
+    st.subheader("Register")
+    username = st.text_input("Username")
+    password = st.text_input("Password", type='password')
+    
+    if st.button("Register"):
+        if username and password:
+            if username in stored_data:
+                st.error("Username already exists.")
             else:
-                left = 3 - st.session_state.attempts
-                st.error(f"Wrong passphrase! Attempts left: {left}")
-                if st.session_state.attempts >= 3:
-                    st.warning("🚫 Too many failed tries! Please reauthorize.")
-                    st.experimental_rerun()
+                hashed_password = hash_password(password)
+                stored_data[username] = {"password": hashed_password, "data": []}  # improved structure
+                save_data(stored_data)
+                st.success("Registration successful!")
         else:
-            st.warning("Both fields are required.")
+            st.error("Please enter both username and password.")
 
-elif nav == "Reauthorize":
-    st.header("🔑 Reauthorize Access")
-    master = st.text_input("Enter master password:", type="password")
+elif choice == "login":
+    st.subheader("Login")
+    
+    if time.time() < st.session_state.lockout_time:
+        remaining_time = int(st.session_state.lockout_time - time.time())
+        st.error(f"Too many failed attempts. Please try again in {remaining_time} seconds.")
+        st.stop()
+    username = st.text_input("Username")
+    password = st.text_input("Password", type='password')
+
     if st.button("Login"):
-        if master == "admin123":  # Demo master password
-            st.session_state.attempts = 0
-            st.success("Access restored! You can try unlocking secrets again.")
-            st.experimental_rerun()
+        if username in stored_data and stored_data[username]["password"] == hash_password(password):  # fixed login check
+            st.session_state.authenicated_user = username
+            st.session_state.failedattempts = 0
+            st.success(f"Welcome {username}!")
         else:
-            st.error("Master password incorrect.")
+            st.session_state.failedattempts += 1
+            remaining_attempts = 3 - st.session_state.failedattempts
+            st.error(f"Invalid credentials. {remaining_attempts} attempts remaining.")
+
+            if st.session_state.failedattempts >= 3:
+                st.session_state.lockout_time = time.time() + LOCKOUT_DURATION
+                st.error("Too many failed attempts. You are locked out for 60 seconds.")
+                st.stop()
+
+# data storage
+
+elif choice == "Store Data":
+    if not st.session_state.authenicated_user:
+        st.warning("Please log in to store data.")
+    else:
+        st.subheader('store Data')
+        data = st.text_area("Enter data to store")
+        passkey = st.text_input("Enter passkey", type='password')
+
+        if st.button('encrypt and store'):
+            if data and passkey:
+                encrypted_data = encrypt_text(data, passkey)
+                stored_data[st.session_state.authenicated_user]["data"].append(encrypted_data)  # fixed structure
+                save_data(stored_data)
+                st.success("Data stored successfully!")
+            else:
+                st.error("Please enter both data and passkey.")
+
+# data retrieval
+
+elif choice == "Retrive Data":
+    if not st.session_state.authenicated_user:
+        st.warning("Please log in to retrieve data.")
+    else:
+        st.subheader('Retrive Data')
+        user_data = stored_data.get(st.session_state.authenicated_user, {}).get('data', [])  # fixed typo
+
+        if not user_data:
+            st.info('No data found for the user.')
+        else:
+            st.write("Stored Data:")
+            for i, item in enumerate(user_data):
+                st.code(item, language='text')
+
+        encrypted_input = st.text_area('enter encrypted data to decrypt')
+        passkey = st.text_input("Enter passkey to decrypt", type='password')
+
+        if st.button('Decrypt'):
+            result = decrypt_text(encrypted_input, passkey)
+            if result:
+                st.success(f"Decrypted Data: {result}")
+            else:
+                st.error("Decryption failed. Please check the passkey or the encrypted data.")
