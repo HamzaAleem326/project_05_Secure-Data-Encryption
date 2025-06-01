@@ -6,6 +6,7 @@ from cryptography.fernet import Fernet
 import time
 
 DATA_PATH = 'user_data.json'
+LOCKOUT_DURATION = 60  # seconds
 
 # Generate/load a Fernet key (for demo, regenerated each run)
 if "crypto_key" not in st.session_state:
@@ -31,6 +32,9 @@ if "attempts" not in st.session_state:
 
 if "lockout_time" not in st.session_state:
     st.session_state.lockout_time = 0
+
+if "authenicated_user" not in st.session_state:
+    st.session_state.authenicated_user = None
 
 # Passkey hashing
 def get_hash(passphrase):
@@ -89,16 +93,16 @@ elif choice == "login":
     password = st.text_input("Password", type='password')
 
     if st.button("Login"):
-        if username in stored_data and stored_data[username]["password"] == hash_password(password):  # fixed login check
+        if username in st.session_state.vault and st.session_state.vault[username]["password"] == get_hash(password):
             st.session_state.authenicated_user = username
-            st.session_state.failedattempts = 0
+            st.session_state.attempts = 0
             st.success(f"Welcome {username}!")
         else:
-            st.session_state.failedattempts += 1
-            remaining_attempts = 3 - st.session_state.failedattempts
+            st.session_state.attempts += 1
+            remaining_attempts = 3 - st.session_state.attempts
             st.error(f"Invalid credentials. {remaining_attempts} attempts remaining.")
 
-            if st.session_state.failedattempts >= 3:
+            if st.session_state.attempts >= 3:
                 st.session_state.lockout_time = time.time() + LOCKOUT_DURATION
                 st.error("Too many failed attempts. You are locked out for 60 seconds.")
                 st.stop()
@@ -115,9 +119,12 @@ elif choice == "Store Data":
 
         if st.button('encrypt and store'):
             if data and passkey:
-                encrypted_data = encrypt_text(data, passkey)
-                stored_data[st.session_state.authenicated_user]["data"].append(encrypted_data)  # fixed structure
-                save_data(stored_data)
+                encrypted_data = lock_text(data, passkey)
+                st.session_state.vault[st.session_state.authenicated_user]["data"].append({
+                    "encrypted_text": encrypted_data,
+                    "passkey": get_hash(passkey)
+                })
+                write_data(st.session_state.vault)
                 st.success("Data stored successfully!")
             else:
                 st.error("Please enter both data and passkey.")
@@ -129,20 +136,20 @@ elif choice == "Retrive Data":
         st.warning("Please log in to retrieve data.")
     else:
         st.subheader('Retrive Data')
-        user_data = stored_data.get(st.session_state.authenicated_user, {}).get('data', [])  # fixed typo
+        user_data = st.session_state.vault.get(st.session_state.authenicated_user, {}).get('data', [])
 
         if not user_data:
             st.info('No data found for the user.')
         else:
             st.write("Stored Data:")
             for i, item in enumerate(user_data):
-                st.code(item, language='text')
+                st.code(item["encrypted_text"], language='text')
 
         encrypted_input = st.text_area('enter encrypted data to decrypt')
         passkey = st.text_input("Enter passkey to decrypt", type='password')
 
         if st.button('Decrypt'):
-            result = decrypt_text(encrypted_input, passkey)
+            result = unlock_text(encrypted_input, passkey)
             if result:
                 st.success(f"Decrypted Data: {result}")
             else:
