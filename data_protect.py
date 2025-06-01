@@ -65,12 +65,12 @@ elif choice == "register":
     
     if st.button("Register"):
         if username and password:
-            if username in stored_data:
+            if username in st.session_state.vault:
                 st.error("Username already exists.")
             else:
-                hashed_password = hash_password(password)
-                stored_data[username] = {"password": hashed_password, "data": []}  # improved structure
-                save_data(stored_data)
+                hashed_password = get_hash(password)
+                st.session_state.vault[username] = {"password": hashed_password, "data": []}
+                write_data(st.session_state.vault)
                 st.success("Registration successful!")
         else:
             st.error("Please enter both username and password.")
